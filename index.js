@@ -9,7 +9,8 @@ var isVideo = require('is-video');
 
 var defaults = {
   lang: 'eng',
-  format: 'srt'
+  format: 'srt',
+  strict: true
 };
 
 /**
@@ -21,6 +22,7 @@ var defaults = {
  * @param {object=} options - subtitle options
  * @param {string} options.lang - desired language
  * @param {string} options.format - desired format
+ * @param {boolean} options.strict - default to first subtitle if language not found
  * @param {function=} callback - callback function
  * @return {stream} stream - only if a callback is not provided
  */
@@ -38,7 +40,7 @@ module.exports = function (filename, options, callback) {
 
   var stream = through();
 
-  getSubtitleIndex(filename, options.lang, function (err, index) {
+  getSubtitleIndex(filename, options.lang, options.strict, function (err, index) {
     if (err) {
       stream.emit('error', err);
       return stream.end();
@@ -68,7 +70,7 @@ module.exports = function (filename, options, callback) {
  * @param {string} lang - language of desired subtitle
  * @param {function} callback - rly
  */
-function getSubtitleIndex (filename, lang, callback) {
+function getSubtitleIndex(filename, lang, strict, callback) {
   probe(filename, function (err, data) {
     if (err) {
       return callback(err);
@@ -81,8 +83,19 @@ function getSubtitleIndex (filename, lang, callback) {
       return isSubtitle && hasLang;
     });
 
-    if (!streams.length) {
-      return callback(new Error('subtitle not found for lang "' + lang + '"'));
+    if (!streams.length) { //no subtitles with specified language
+      if (strict) {
+        return callback(new Error('Subtitle not found for lang "' + lang + '"'));
+      }
+      else {
+        streams = data.streams.filter(function (stream) {
+          var isSubtitle = stream.codec_type === 'subtitle';
+          return isSubtitle;
+        });
+        if (!streams.length){
+          return callback(new Error('No subtitles found'));
+        }
+      }
     }
 
     callback(null, data.streams.indexOf(streams[0]));
@@ -97,7 +110,7 @@ function getSubtitleIndex (filename, lang, callback) {
  * @param {string} format - subtitle format (srt, ass, etc.)
  * @return {stream}
  */
-function getSubtitleStream (filename, index, format) {
+function getSubtitleStream(filename, index, format) {
   var stream = through();
 
   var ffmpeg = spawn('ffmpeg', [
